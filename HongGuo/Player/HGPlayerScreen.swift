@@ -250,6 +250,7 @@ struct HGPlayerScreen: View {
                     }
                 }
                 .scrollTargetLayout()
+                .hgDisableScrollToTop()   // 点屏幕顶部不再跳回第 1 集
             }
             .scrollTargetBehavior(.paging)
             .scrollPosition(id: $page)

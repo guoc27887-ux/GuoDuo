@@ -241,6 +241,7 @@ struct HGFeedView: View {
                             }
                         }
                         .scrollTargetLayout()
+                        .hgDisableScrollToTop()   // 点屏幕顶部不再跳回第一部
                     }
                     .scrollTargetBehavior(.paging)
                     .scrollPosition(id: $current)
