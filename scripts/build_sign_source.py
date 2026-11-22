@@ -14,6 +14,7 @@ Gitee 缺某个版本时，国内源该版本下载地址回落到 GitHub 并打
 """
 import argparse
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -48,7 +49,7 @@ def gh_releases(limit):
 def gitee_assets():
     """{tag: {附件名}}：Gitee 已挂好的版本。凭据不入库；读不到返回 None（国内源全部走 GitHub）。"""
     try:
-        tok = json.loads((pathlib.Path.home() / ".hermes/shared-credentials/gitee-remon8.json").read_text())["access_token"]
+        tok = json.loads(pathlib.Path(os.environ.get("GITEE_TOKEN_FILE", "~/.config/douduo/gitee-token.json")).expanduser().read_text())["access_token"]
     except Exception:
         tok = None
     req = urllib.request.Request(f"https://gitee.com/api/v5/repos/{GITEE_REPO}/releases?per_page=100",
