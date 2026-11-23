@@ -10,6 +10,7 @@ const crypto = require('node:crypto');
 const { gzipSync } = require('node:zlib');
 const { setTimeout: delay } = require('node:timers/promises');
 const playbackDevice = require('./playback-device');
+const sdkPlayback = require('../shims/sdk-playback.js');
 const { signPlayer } = require('./playback-signature');
 const { signPlaybackV5 } = require('./playback-v5');
 const { abortError, throwIfAborted, boundedSignal, networkFailure } = require('./request-signal');
@@ -214,6 +215,11 @@ function videoTabRequest(identity, videoId) {
             aid: '8662', app_name: 'novelread', version_code: '74332', version_name: '7.4.3.32',
             channel: 'vivo_8662_64', device_platform: 'android', device_type: 'PGT-AN10',
             os_version: '12', update_version_code: '74332',
+            // GuoDuo：video_tab 补全设备参数（同绿果TV 2.0.8），缺了服务端回空包
+            os: 'android', ssmix: 'a', manifest_version_code: '74332', resolution: '1920*1080', dpi: '280',
+            device_brand: 'HONOR', language: 'zh', os_api: '31', ac: 'wifi', host_abi: 'arm64-v8a',
+            dragon_device_type: 'phone', pv_player: '74332', compliance_status: '0', need_personal_recommend: '1',
+            player_so_load: '1', is_android_pad_screen: '0', rom_version: 'V417IR+release-keys',
             iid: identity.iid, cdid: identity.cdid, device_id: identity.device_id,
             video_id: String(videoId), video_id_type: '0', device_level: '1',
             need_all_video_definition: '1', need_mp4_align: '0', use_os_player: '0',
@@ -440,6 +446,10 @@ async function fetchAppPlayUrl(vid, options = {}) {
     normalizeDownloadQuality(options.quality); // Validate before registration or network I/O.
     vid = String(vid || '');
     if (!/^\d{1,30}$/.test(vid)) throw new Error('分集编号无效');
+    if (options.preferSdk) {
+        const preferred = await resolveSdkAppPlayUrl(vid, options);
+        if (preferred) return preferred;
+    }
     // Playback, prefetch and downloads share one paced turn, including registration.
     const previousRejection = playbackRejection;
     const pending = playbackQueue.then(async () => {
@@ -451,17 +461,20 @@ async function fetchAppPlayUrl(vid, options = {}) {
             catch (error) { throwIfAborted(options.signal); throw error; }
         }
         throwIfAborted(options.signal);
+        let identityRotated = false;
         try {
-            let identityRetried = false;
             for (;;) {
                 try { return await fetchAppPlayUrlFresh(vid, options); }
                 catch (error) {
                     throwIfAborted(options.signal);
-                    if (identityRetried || error.code !== 'BUSINESS_REJECTED' || Number(error.businessCode) !== 110001) throw error;
+                    const empty = error.code === 'EMPTY_RESPONSE';
+                    const rejected = error.code === 'BUSINESS_REJECTED' && Number(error.businessCode) === 110001;
+                    if (identityRotated || (!empty && !rejected)) throw error;
+                    if (empty && Date.now() - playbackIdentityResetAt < 30000) throw error;
                     playbackDevice.resetPlaybackDevice?.();
                     playbackIdentityResetAt = Date.now();
                     playbackEmptyRounds = 0;
-                    identityRetried = true;
+                    identityRotated = true;
                 }
             }
         }
@@ -515,10 +528,10 @@ async function fetchAppPlayUrlFresh(vid, options) {
     const { signal } = request;
     try {
         const routes = [
+            () => videoTabRequest(identity, vid),
             () => playbackRequest(payload, identity, vid),
             () => playbackRequest(payload, identity, vid, true),
             ...MODEL_APIS.map(base => () => playbackModelRequest(identity, vid, base)),
-            () => videoTabRequest(identity, vid),
             () => {
                 const legacy = playbackRequest(payload, identity, '');
                 legacy.headers.Connection = 'close';
@@ -561,9 +574,13 @@ async function fetchAppPlayUrlFresh(vid, options) {
             }
             break;
         }
-        if (!response) throw lastError || Object.assign(new Error('App 接口返回空响应（HTTP 200），原因尚未确认'), {
-            code: 'EMPTY_RESPONSE', status: 200, emptyResponse: true,
-        });
+        if (!response) {
+            const preferred = await resolveSdkAppPlayUrl(vid, options);
+            if (preferred) return preferred;
+            throw lastError || Object.assign(new Error('App 接口返回空响应（HTTP 200），原因尚未确认'), {
+                code: 'EMPTY_RESPONSE', status: 200, emptyResponse: true,
+            });
+        }
         playbackEmptyRounds = 0;
         const businessCode = Number(response.Code || response.code || 0);
         if (businessCode !== 0) throw Object.assign(new Error('App 接口暂未提供本集播放信息'), {
@@ -607,6 +624,16 @@ async function fetchAppPlayUrlFresh(vid, options) {
     } finally {
         request.dispose();
     }
+}
+
+async function resolveSdkAppPlayUrl(vid, options) {
+    const sdkResult = await sdkPlayback.resolveSdkPlayback(vid, { signal: options.signal });
+    throwIfAborted(options.signal);
+    if (!sdkResult) return null;
+    const parsed = parseAppPlayModel(sdkResult.model, vid, options, false);
+    parsed.userAgent = sdkResult.userAgent;
+    for (const variant of parsed.variants || []) variant.userAgent = sdkResult.userAgent;
+    return parsed;
 }
 
 function parseAppPlayModel(info, vid, options, inline, requireEncryptionMetadata = inline, minimumPixels = 0) {
