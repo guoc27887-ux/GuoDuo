@@ -34,7 +34,15 @@ case $RC in
       xcodegen generate >/dev/null
       git add project.yml HongGuo.xcodeproj docs/releases/v$NEW.md && git commit -qm "release: GuoDuo $NEW（自动同步上游）" && git push -q origin main
       if ./release.sh >> "$LOG" 2>&1; then
-        echo "NOTIFY: GuoDuo 上游有更新，已自动同步、实测通过并发布 $NEW，一键签会自动更新。"
+        # 老板定（2026-11-23）：发版必须顺手装老板手机。release.local.sh 本机私有不入库，有才跑；连不上手机就留 OTA 链接
+        PHONE=""
+        if [[ -x ./release.local.sh ]]; then
+          ./release.local.sh >> "$LOG" 2>&1
+          INST=$(grep -E '✅ 已装|❌' "$LOG" | tail -2 | tr '\n' ' ')
+          OTA=$(grep -m1 '^OTA: ' "$LOG" | sed 's/^OTA: //')
+          PHONE=" 手机：${INST:-没连上，OTA $OTA}"
+        fi
+        echo "NOTIFY: GuoDuo 上游有更新，已自动同步、实测通过并发布 $NEW，一键签会自动更新。$PHONE"
       else
         echo "NOTIFY: GuoDuo 上游更新已同步并实测通过，但自动发版 $NEW 失败，日志 $LOG"
       fi
