@@ -11,13 +11,29 @@
       "name": "GuoDuo",
       "bundleIdentifier": "me.rrmm.hongguo",
       "type": "1",
+      "version": "0.7.0",
+      "versionDate": "2026-11-23T18:43:13+00:00",
+      "versionDescription": "GuoDuo 0.7.0\n\n优化\n- 滑到下一集 / 推荐里滑到下一部，起播从 1.7 秒左右缩到 0.5 秒左右，戴蓝牙耳机也不再先暂停一下才开始放。\n- 修复切集后画面先顿住、再快进掉开头一段的问题。\n- 后台预下改为后面 2 集，连续往后滑不用等下载；滑动途中直接显示下一集的第一帧画面。",
+      "subtitle": "原生 SwiftUI 红果短剧客户端，适配折叠屏与 iPad",
+      "localizedDescription": "GuoDuo：开源免费的红果短剧客户端（非官方），原生 SwiftUI，适配 iPhone Duo 折叠屏、iPad 与普通 iPhone。安装包为未签名 IPA，需要用自己的证书签名。仅供个人学习交流。",
+      "lock": "0",
+      "downloadURL": "https://github.com/81199000/GuoDuo/releases/download/v0.7.0/GuoDuo-0.7.0-unsigned.ipa",
+      "isLanZouCloud": "0",
+      "iconURL": "https://gitee.com/remon8/guoduo/raw/main/docs/brand/app-icon.png",
+      "tintColor": "EE3B45",
+      "size": "4131672"
+    },
+    {
+      "name": "GuoDuo",
+      "bundleIdentifier": "me.rrmm.hongguo",
+      "type": "1",
       "version": "0.6.9",
       "versionDate": "2026-11-23T14:25:46+00:00",
       "versionDescription": "GuoDuo 0.6.9\n\n修复\n- 红果 App 高清片源恢复：所有集数（不再只有前 5 集）都能取到原画质片源，最高 1080P，取源约 1 秒。\n- 0.6.8 的官网 360P 兜底保留为备用线路，App 接口再出问题时自动顶上。\n- 同步上游 hongguo-drama 8.1。",
       "subtitle": "原生 SwiftUI 红果短剧客户端，适配折叠屏与 iPad",
       "localizedDescription": "GuoDuo：开源免费的红果短剧客户端（非官方），原生 SwiftUI，适配 iPhone Duo 折叠屏、iPad 与普通 iPhone。安装包为未签名 IPA，需要用自己的证书签名。仅供个人学习交流。",
       "lock": "0",
-      "downloadURL": "https://github.com/81199000/GuoDuo/releases/download/v0.6.9/GuoDuo-0.6.9-unsigned.ipa",
+      "downloadURL": "https://gitee.com/remon8/guoduo/releases/download/v0.6.9/GuoDuo-0.6.9-unsigned.ipa",
       "isLanZouCloud": "0",
       "iconURL": "https://gitee.com/remon8/guoduo/raw/main/docs/brand/app-icon.png",
       "tintColor": "EE3B45",
@@ -70,22 +86,6 @@
       "iconURL": "https://gitee.com/remon8/guoduo/raw/main/docs/brand/app-icon.png",
       "tintColor": "EE3B45",
       "size": "4099381"
-    },
-    {
-      "name": "GuoDuo",
-      "bundleIdentifier": "me.rrmm.hongguo",
-      "type": "1",
-      "version": "0.6.5",
-      "versionDate": "2026-11-21T11:28:47+00:00",
-      "versionDescription": "GuoDuo 0.6.5\n\n调整\n- 去掉「离线下载」：详情页不再有「下载」按钮，「我的」里不再有「离线下载」，也不再支持存相册、导出和合并。\n- 升级后会自动删掉以前离线下载的视频，释放空间；正常在线观看、推荐预加载不受影响。\n- 不再申请相册写入权限。\n\n修复\n- 偶尔提示「App 接口返回空响应」、剧放不了：红果接口偶尔回空包时，重试走到了一个已经失效的旧接口，等于白试。现在改用当前接口并换新设备重试，接口抖一下也能取到片源。\n\n更新\n- 检查更新改到 oneduo.app：GitHub 旧仓库已停用，「去更新」打开 oneduo.app，用一键签装新版。",
-      "subtitle": "原生 SwiftUI 红果短剧客户端，适配折叠屏与 iPad",
-      "localizedDescription": "GuoDuo：开源免费的红果短剧客户端（非官方），原生 SwiftUI，适配 iPhone Duo 折叠屏、iPad 与普通 iPhone。安装包为未签名 IPA，需要用自己的证书签名。仅供个人学习交流。",
-      "lock": "0",
-      "downloadURL": "https://gitee.com/remon8/guoduo/releases/download/v0.6.5/GuoDuo-0.6.5-unsigned.ipa",
-      "isLanZouCloud": "0",
-      "iconURL": "https://gitee.com/remon8/guoduo/raw/main/docs/brand/app-icon.png",
-      "tintColor": "EE3B45",
-      "size": "4099092"
     }
   ]
 }
