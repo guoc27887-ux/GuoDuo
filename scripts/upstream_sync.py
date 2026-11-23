@@ -125,7 +125,9 @@ const { fetchPublicFallback } = require(path.join(dir, '..', 'web-fallback.cjs')
       need_all_video_definition: false, need_mp4_align: false, source: 4, video_id_type: 1 } };
     const s = signedMetadataRequest('/novel/player/video_detail/v1/', {}, body);
     const j = await requestJson(s.url, { method: 'POST', headers: s.headers, data: s.body }, Date.now() + 15000).catch(e => ({ e }));
-    const vids = (j?.data?.video_data?.video_list || []).slice(0, N).map(v => String(v.vid));
+    // 前 N-1 集 + 第 10 集：官网兜底只放前 5 集（2026-11-23 实测第 6 集起 403），只测前几集会把「后面全挂」测成通过
+    const list = j?.data?.video_data?.video_list || [];
+    const vids = [...list.slice(0, Math.max(1, N - 1)), list[9] || list[list.length - 1]].filter(Boolean).map(v => String(v.vid));
     if (!vids.length) { lines.push(`「${kw}」取分集失败`); total += N; continue; }
     for (const vid of vids) {
       total++;

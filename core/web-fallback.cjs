@@ -17,7 +17,9 @@ async function fetchPublicFallback(vid, signal) {
     data: { item_id: vid }, timeout: 8000, maxRedirects: 0, responseType: 'json', validateStatus: () => true, signal });
   const p = r?.data;
   if (r?.status !== 200 || !p || typeof p !== 'object' || Number(p.base_resp?.StatusCode ?? p.code ?? 0) !== 0)
-    throw fail('官网兜底接口未返回片源', r?.status >= 400 ? `HTTP_${r.status}` : 'NO_PLAYABLE_SOURCE');
+    // 403 public_fallback_unavailable = 官网只放每部剧前 5 集（2026-11-23 实测），不是网络问题
+    throw r?.status === 403 ? fail('红果 App 接口失效中，官网只放前 5 集，这集要等上游修复', 'HTTP_403')
+      : fail('官网兜底接口未返回片源', r?.status >= 400 ? `HTTP_${r.status}` : 'NO_PLAYABLE_SOURCE');
   let media;
   try { media = new URL(String(p.main_url || '').replace(/^http:\/\//, 'https://')); } catch (_) { media = null; }
   if (!media || media.protocol !== 'https:' || media.username || media.password
