@@ -2,12 +2,16 @@
 # 定时看上游 hongguo-drama 有没有更新；有就自动同步 + 实测，按结果通知老板。
 #   scripts/upstream_watch.sh            同步 + 实测 + 本地提交，通知老板，等老板说「发」
 #   scripts/upstream_watch.sh --release  实测通过就直接发版（升补丁版本号 → 写更新说明 → release.sh）
-# 由 launchd 每小时跑一次（~/Library/LaunchAgents/me.rrmm.guoduo.upstream.plist）。
+# 由 jibao cron 每小时 :17 跑一次（~/.hermes/profiles/jibao/scripts/guoduo_upstream_watch.sh）。
+# 跑完同步后接着跑 scripts/ref_watch.py：盯参考源绿果TV + 自身取源健康（红果改签名时上游没提交也能发现）。
 # 输出最后一行是给通知用的一句话摘要（以 NOTIFY: 开头）；没有更新时不输出 NOTIFY，保持安静。
 set -u
 cd "$(dirname "$0")/.."
 LOG=${TMPDIR:-/tmp}/guoduo-upstream.log
 AUTO_RELEASE=0; [[ ${1:-} == --release ]] && AUTO_RELEASE=1
+
+# 收尾巡检（参考源 + 取源健康），不管同步结果如何都跑
+trap 'python3 scripts/ref_watch.py 2>/dev/null || true' EXIT
 
 # 只在干净的 main 上动手，别人正在改就跳过这一轮
 [[ $(git rev-parse --abbrev-ref HEAD) == main ]] || { echo "不在 main，跳过"; exit 0; }
