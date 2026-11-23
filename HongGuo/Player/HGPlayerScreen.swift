@@ -277,9 +277,14 @@ struct HGPlayerScreen: View {
                 DYAmbientBackdrop(player: session.player, active: true, dim: 0.6, fillWidth: fillWidth)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
-                HGVideoLayer(player: session.player, fillWidth: fillWidth, pip: session.pip)
+                HGVideoLayer(player: session.player, fillWidth: fillWidth, pip: session.pip,
+                             onReadyForDisplay: { [session] in session.setDisplayReady($0) })
                     .scaleEffect(userScale * pinchScale)
                     .clipped()
+                // 第一帧出来之前盖着预取的首帧：滑过来不黑屏、不像卡住
+                if !session.displayReady, let poster = session.posters[ep.vid] {
+                    posterView(poster, size: size).allowsHitTesting(false)
+                }
                 if danmakuOn && !clean && (!consoleShown || !danmakuInConsole) {
                     DYDanmakuLayer(items: session.danmaku, clock: session.clock, topInset: safeTop, fullPane: consoleShown)
                         .accessibilityElement()
@@ -322,6 +327,9 @@ struct HGPlayerScreen: View {
                 if seeking && !consoleShown { seekOverlay }
                 statusOverlay
                 if clean { exitCleanButton } else if consoleShown { consoleTitle(ep) } else { chrome(ep) }   // 横屏评论从右滑出时，视频缩到左边，菜单栏仍贴视频右侧
+            } else if let poster = session.posters[ep.vid] {
+                // 已预下的集：滑动途中就是本集第一帧真画面
+                posterView(poster, size: size).allowsHitTesting(false)
             } else {
                 // 相邻页只显示封面占位，滑动时不黑屏
                 HGCover(url: session.series.coverURL).blur(radius: 18).opacity(0.35).allowsHitTesting(false)
@@ -329,6 +337,15 @@ struct HGPlayerScreen: View {
             }
         }
         .clipped()
+    }
+
+    /// 首帧海报：铺满规则与画面层一致（DYVideoFit）
+    private func posterView(_ img: UIImage, size: CGSize) -> some View {
+        let fill = DYVideoFit.presentation(fillWidth: fillWidth, videoAspect: img.size.width / max(img.size.height, 1),
+                                           screenAspect: size.width / max(size.height, 1)) == .aspectFill
+        return Image(uiImage: img).resizable().aspectRatio(contentMode: fill ? .fill : .fit)
+            .frame(width: size.width, height: size.height).clipped()
+            .accessibilityIdentifier("hg.player.poster")
     }
 
     // MARK: 叠加层
@@ -899,6 +916,7 @@ struct HGVideoLayer: UIViewRepresentable {
     let player: AVPlayer
     let fillWidth: Bool
     let pip: DYPictureInPicture
+    var onReadyForDisplay: ((Bool) -> Void)? = nil
     /// 同一个 AVPlayer 复用同一块画面层：推荐页预热的下一部转正时，页面从「预热画面」换成完整播放页，
     /// 新建 AVPlayerLayer 会让解码管线重建（真机：起播 1.5 秒、播 1 秒跳回开头）。挪同一个 view 过去就不重建
     private static let views = NSMapTable<AVPlayer, HGPlayerLayerView>.weakToWeakObjects()
@@ -907,12 +925,14 @@ struct HGVideoLayer: UIViewRepresentable {
         if let v = Self.views.object(forKey: player) {
             v.removeFromSuperview()
             v.fillWidth = fillWidth
+            v.onReadyForDisplay = onReadyForDisplay
             return v
         }
         let v = HGPlayerLayerView()
         Self.views.setObject(v, forKey: player)
         v.playerLayer.player = player
         v.fillWidth = fillWidth
+        v.onReadyForDisplay = onReadyForDisplay
         v.pip = pip
         pip.prepareManual(layer: v.playerLayer)   // 不建控制器：退出 App 不会自动画中画
         return v
@@ -927,6 +947,8 @@ struct HGVideoLayer: UIViewRepresentable {
 final class HGPlayerLayerView: UIView {
     var fillWidth = true
     weak var pip: DYPictureInPicture?
+    var onReadyForDisplay: ((Bool) -> Void)? { didSet { onReadyForDisplay?(playerLayer.isReadyForDisplay) } }
+    private var readyObs: NSKeyValueObservation?
     private var sizeObs: NSKeyValueObservation?
     private var detached: AVPlayer?
     private var bgObs: [NSObjectProtocol] = []
@@ -936,6 +958,10 @@ final class HGPlayerLayerView: UIView {
         super.init(frame: frame)
         backgroundColor = .black
         playerLayer.videoGravity = .resizeAspect
+        readyObs = playerLayer.observe(\.isReadyForDisplay, options: [.new]) { [weak self] l, _ in
+            let r = l.isReadyForDisplay
+            DispatchQueue.main.async { self?.onReadyForDisplay?(r) }
+        }
         sizeObs = playerLayer.observe(\.videoRect, options: [.new]) { [weak self] _, _ in DispatchQueue.main.async { self?.applyGravity() } }
         let nc = NotificationCenter.default
         bgObs = [

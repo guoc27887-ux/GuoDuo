@@ -71,6 +71,14 @@ final class HGPlaybackSession {
     private(set) var suspended = false
     /// 首帧已解好（预热完成或已开播）
     private(set) var frameReady = false
+    /// 画面层已经出了本集第一帧（AVPlayerLayer.isReadyForDisplay）：之前一直盖着首帧海报，不黑屏
+    private(set) var displayReady = false
+    func setDisplayReady(_ r: Bool) { if displayReady != r { displayReady = r } }
+    /// 后面几集的首帧（vid → 图）：滑动途中相邻页直接显示真画面，转正后第一帧解出来之前也先盖着它
+    private(set) var posters: [String: UIImage] = [:]
+    private var aheadTask: Task<Void, Never>?
+    /// 往后预下几集：只备 1 集时连滑两下就得等下载
+    private static let aheadCount = 2
     private var primeObs: NSKeyValueObservation?
 
     init(_ r: HGPlayerRequest, feedMode: Bool = false) {
@@ -265,7 +273,7 @@ final class HGPlaybackSession {
 
     func stop() {
         save(force: true)
-        loadTask?.cancel(); danmakuTask?.cancel()
+        loadTask?.cancel(); danmakuTask?.cancel(); aheadTask?.cancel()
         primeObs?.invalidate(); primeObs = nil
         player.pause()
         if feedMode { player.replaceCurrentItem(with: nil) }
@@ -287,7 +295,8 @@ final class HGPlaybackSession {
     private func load(_ i: Int, at offset: Double) {
         loadTask?.cancel()
         index = i; failed = nil; status = "正在获取片源…"
-        position = 0; duration = 0; danmaku = []; danmakuNotice = nil; frameReady = false
+        position = 0; duration = 0; danmaku = []; danmakuNotice = nil; frameReady = false; displayReady = false
+        aheadTask?.cancel()
         player.pause()
         player.replaceCurrentItem(with: nil)
         clock = DYDanmakuClock()
@@ -313,7 +322,7 @@ final class HGPlaybackSession {
                 }
                 guard let self, !Task.isCancelled, self.index == i else { return }
                 self.attach(file, offset: offset)
-                if !self.feedMode, self.hasNext, self.episodes[i + 1].locked != true { await HGMediaCache.shared.prefetch(self.episodes[i + 1].vid) }
+                self.prefetchAhead(from: i)
             } catch {
                 guard let self, !Task.isCancelled, self.index == i else { return }
                 self.status = nil
@@ -322,6 +331,33 @@ final class HGPlaybackSession {
                 if self.feedMode { self.onFeedEnd?() }
             }
         }
+    }
+
+    /// 预下后面几集 + 取首帧海报（推荐流每部只放第 1 集，不预下）
+    private func prefetchAhead(from i: Int) {
+        aheadTask?.cancel()
+        guard !feedMode else { return }
+        let vids = episodes.dropFirst(i + 1).prefix(Self.aheadCount).filter { $0.locked != true }.map(\.vid)
+        let keep = Set([episodes[i].vid] + vids)
+        posters = posters.filter { keep.contains($0.key) }
+        aheadTask = Task { [weak self] in
+            for vid in vids {
+                // 取消只是不再等，缓存里的下载照常跑完
+                guard let file = try? await HGMediaCache.shared.file(for: vid), !Task.isCancelled else { return }
+                await self?.preparePoster(vid, file: file)
+            }
+        }
+    }
+
+    private func preparePoster(_ vid: String, file: URL) async {
+        guard posters[vid] == nil else { return }
+        let gen = AVAssetImageGenerator(asset: AVURLAsset(url: file))
+        gen.appliesPreferredTrackTransform = true
+        gen.maximumSize = CGSize(width: 1080, height: 1080)
+        gen.requestedTimeToleranceBefore = .zero
+        gen.requestedTimeToleranceAfter = CMTime(seconds: 0.1, preferredTimescale: 600)
+        guard let (cg, _) = try? await gen.image(at: .zero), !Task.isCancelled else { return }
+        posters[vid] = UIImage(cgImage: cg)
     }
 
     /// 弹幕：等本集时长出来后一次拉完整集（核心里按 30 秒窗 + cursor 续页，每页 200 条）。

@@ -27,6 +27,7 @@
 		67BA49D1C11F6D3651BC89FE /* HGModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FCB4AE89C633049C3792826 /* HGModels.swift */; };
 		6916EAB6CA0E9D217FE479D7 /* HGFeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4678CF6F59364B77B55B578 /* HGFeedView.swift */; };
 		760087ABF7564DB45D82D71F /* DYDuoLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 713E6EDFF2D60896235A2A32 /* DYDuoLayout.swift */; };
+		7DBC9E95A4F4B7FD4D9EFE2D /* HGSwipeTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DC3F9242FACD60B82125A86 /* HGSwipeTiming.swift */; };
 		828EF0ACED39D4092D79971F /* HongGuoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 788133021D40CA13E6BF8B34 /* HongGuoApp.swift */; };
 		850D33A8A0947B385567D5C6 /* DYVideoFit.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA08D8E530DCC1B07CC6F0D5 /* DYVideoFit.swift */; };
 		8871E283FC026BB9DCBAC4CB /* HGCencDecryptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1366EAB97A044D67FD6D39D /* HGCencDecryptor.swift */; };
@@ -73,6 +74,7 @@
 		200BD63EC01FC0B32F4C014B /* HGConsoleGestureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HGConsoleGestureTests.swift; sourceTree = "<group>"; };
 		20261A567433EA51E32A4681 /* HGTabletop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HGTabletop.swift; sourceTree = "<group>"; };
 		28EFA5F5726071B966B0AD66 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		2DC3F9242FACD60B82125A86 /* HGSwipeTiming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HGSwipeTiming.swift; sourceTree = "<group>"; };
 		2DFA72E179AE3048563564E6 /* DYLiveAdaptiveLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DYLiveAdaptiveLayout.swift; sourceTree = "<group>"; };
 		3305DD8EFC71C8F7354144EF /* HGEpisodePlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HGEpisodePlayer.swift; sourceTree = "<group>"; };
 		40BD52F43AAC9294B5A26030 /* HGPlayerScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HGPlayerScreen.swift; sourceTree = "<group>"; };
@@ -170,6 +172,7 @@
 				5F40B9A2DB5105D3C008257E /* HGLandscapeShot.swift */,
 				94E0D00CA110AAFF7DF6B466 /* HGMineShelfTests.swift */,
 				734656AB064DDD880E3510F9 /* HGPostureTests.swift */,
+				2DC3F9242FACD60B82125A86 /* HGSwipeTiming.swift */,
 				8A8E37298163958332DBE2E7 /* HGTabletopSwipeTests.swift */,
 				98AE9622D9B7714A7764A4FA /* HGTabletopTests.swift */,
 				D308219684BFBD084EDD00CB /* HGUpdateTests.swift */,
@@ -362,6 +365,7 @@
 				E47899B4BDDC29D228EE4842 /* HGLandscapeShot.swift in Sources */,
 				B561F5F63197372870E0DA18 /* HGMineShelfTests.swift in Sources */,
 				C112F43131630C8E740D19F9 /* HGPostureTests.swift in Sources */,
+				7DBC9E95A4F4B7FD4D9EFE2D /* HGSwipeTiming.swift in Sources */,
 				FF4A8D0069FB91E8A6E12AAF /* HGTabletopSwipeTests.swift in Sources */,
 				64E467E5DCBC4B78E2361A43 /* HGTabletopTests.swift in Sources */,
 				2C7AF9B5F466D880B5605510 /* HGUpdateTests.swift in Sources */,
