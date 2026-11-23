@@ -10,8 +10,12 @@ import { fetchPublicDetails } from './upstream/public-details.js';
 import { createAccountService } from './upstream/account-session.js';
 import * as xifan from './upstream/xifan.js';
 import * as hema from './upstream/hema.js';
+import { fetchPublicFallback } from './web-fallback.cjs';
 
 const PLAYABLE = ['h264', 'avc', 'avc1', 'hevc', 'h265', 'hvc1', 'hev1', 'bytevc1'];
+const APP_EMPTY_CODES = ['EMPTY_RESPONSE', 'ETIMEDOUT', 'ECONNABORTED', 'ERR_NETWORK'];
+let appPlayDownUntil = 0;
+
 const plain = e => ({ message: String(e?.message || e), code: e?.code || '' });
 // 每个调用返回 Promise，结果统一回到原生 Native.done(callId, json)。
 function wrap(callId, task) {
@@ -117,18 +121,27 @@ globalThis.HG = {
           if (!r.url) throw Object.assign(new Error(r.error || '片源不可用'), { code: r.locked ? 'LOCKED' : '' });
           return { vid: String(vid), variants: [{ url: r.url, contentKey: null, codec: 'h264', quality: '', userAgent: 'Mozilla/5.0', referer: '' }] };
         }
-        // 红果 App 播放接口会随机回 HTTP 200 空包（2026-11-19 实测同一集连取 4 次约四成失败，不是某集坏了），
-        // 上游每次只内部重试 1 次；这里再整体重来最多 3 轮（每轮重新注册匿名设备），间隔 0.6s，总耗时封顶 ~25s
+        // 红果 App 播放接口会回 HTTP 200 空包：2026-11-19 是随机四成失败，2026-11-23 起全线空包（上游 8.0 也修不回来，
+        // 换官网网页播放器的公开兜底接口）。上游 8.0 内部已经轮换 6 个入口 + 节流换号，这里只再补 1 轮；
+        // 仍是空包就记 5 分钟「App 不可用」，期间直接走官网兜底（完整一集 360P H.264，不加密），省掉每集 3~4 秒白等。
         let s, lastErr;
-        for (let round = 0; round < 4 && !s; round++) {
-          if (round) await new Promise(r => setTimeout(r, 600));
-          if (controller.signal.aborted) break;
-          try { s = await fetchAppPlayUrl(String(vid), { quality: quality || 'auto', signal: controller.signal }); }
-          catch (e) {
-            lastErr = e;
-            if (!['EMPTY_RESPONSE', 'ETIMEDOUT', 'ECONNABORTED', 'ERR_NETWORK'].includes(e?.code)) throw e;
-            Native.log(`source retry vid=${vid} round=${round + 1} code=${e.code}`);
+        if (Date.now() >= appPlayDownUntil) {
+          for (let round = 0; round < 2 && !s; round++) {
+            if (round) await new Promise(r => setTimeout(r, 600));
+            if (controller.signal.aborted) break;
+            try { s = await fetchAppPlayUrl(String(vid), { quality: quality || 'auto', signal: controller.signal }); }
+            catch (e) {
+              lastErr = e;
+              if (!APP_EMPTY_CODES.includes(e?.code)) break;
+              Native.log(`source retry vid=${vid} round=${round + 1} code=${e.code}`);
+            }
           }
+          if (s) appPlayDownUntil = 0;
+          else if (APP_EMPTY_CODES.includes(lastErr?.code)) appPlayDownUntil = Date.now() + 5 * 60 * 1000;
+        }
+        if (!s && !controller.signal.aborted) {
+          try { s = await fetchPublicFallback(String(vid), controller.signal); Native.log(`source web-fallback vid=${vid}`); }
+          catch (e) { Native.log(`source web-fallback fail vid=${vid} ${e.code || ''} ${e.message}`); if (!lastErr) lastErr = e; }
         }
         if (!s) throw lastErr || new Error('取源失败');
         const all = s.variants || [s];

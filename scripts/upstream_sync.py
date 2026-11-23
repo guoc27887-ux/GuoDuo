@@ -114,8 +114,9 @@ const path = require('node:path');
 const dir = process.argv[2], kws = JSON.parse(process.argv[3]), N = +process.argv[4];
 const { fetchAppPlayUrl, signedMetadataRequest, requestJson } = require(path.join(dir, 'app-source.js'));
 const { searchApp } = require(path.join(dir, 'hongguo-app-search.js'));
+const { fetchPublicFallback } = require(path.join(dir, '..', 'web-fallback.cjs'));
 (async () => {
-  let ok = 0, total = 0; const lines = [];
+  let ok = 0, total = 0, app = 0, web = 0; const lines = [];
   for (const kw of kws) {
     let sid;
     try { sid = String((await searchApp(kw, { page: 1 })).results[0].series_id); }
@@ -128,10 +129,15 @@ const { searchApp } = require(path.join(dir, 'hongguo-app-search.js'));
     if (!vids.length) { lines.push(`「${kw}」取分集失败`); total += N; continue; }
     for (const vid of vids) {
       total++;
-      try { await fetchAppPlayUrl(vid, {}); ok++; }
-      catch (e) { lines.push(`「${kw}」${vid} ${e.code || ''} ${String(e.message).slice(0, 60)}`); }
+      // 与 App 一致：App 接口取不到再走官网兜底（core/web-fallback.cjs），任一条通就算能播
+      try { await fetchAppPlayUrl(vid, {}); ok++; app++; continue; }
+      catch (e) {
+        try { await fetchPublicFallback(vid); ok++; web++; }
+        catch (w) { lines.push(`「${kw}」${vid} App ${e.code || ''} ${String(e.message).slice(0, 40)}；官网兜底 ${w.code || ''} ${String(w.message).slice(0, 30)}`); }
+      }
     }
   }
+  lines.unshift(`App 接口 ${app} 集，官网兜底 360P ${web} 集`);
   console.log(JSON.stringify({ ok, total, lines }));
 })().catch(e => console.log(JSON.stringify({ ok: 0, total: 1, lines: [String(e.message)] })));
 """
@@ -139,6 +145,7 @@ const { searchApp } = require(path.join(dir, 'hongguo-app-search.js'));
         td = pathlib.Path(td)
         shutil.copytree(ROOT / "core/upstream", td / "upstream")
         shutil.copytree(ROOT / "core/shims", td / "shims")
+        shutil.copy(ROOT / "core/web-fallback.cjs", td / "web-fallback.cjs")
         nm = CACHE / "node_modules"
         if not (nm / "axios").exists():
             sh("npm", "i", "--silent", "--no-audit", "--no-fund", "axios", cwd=CACHE)
@@ -186,7 +193,7 @@ def main():
     ok, total, lines = smoke()
     print(f"实测取源：{ok}/{total}")
     for ln in lines:
-        print("  ✗ " + ln)
+        print(("  · " if ln.startswith("App 接口 ") else "  ✗ ") + ln)
     if total == 0 or ok < total * 0.8:
         sh("git", "checkout", "--", "core/upstream", cwd=ROOT)
         print("❌ 实测没过，已还原，不提交")
