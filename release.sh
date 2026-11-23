@@ -32,7 +32,8 @@ echo "✅ 已发布 https://github.com/81199000/GuoDuo/releases/tag/$TAG（私�
 
 # Gitee 镜像：代码 + tag + 发行版（没配 gitee 远端就跳过，国内源回落 GitHub）
 if git remote get-url gitee >/dev/null 2>&1; then
-  git fetch -q origin "refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null || true
+  # gh release create 刚建的 tag，GitHub 偶尔几秒后才能 fetch 到（0.6.9/0.7.0 都因此 Gitee 缺 tag、发行版 400）
+  for i in 1 2 3 4 5; do git fetch -q origin "refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null && break; sleep 3; done
   git push -q gitee HEAD:main "$TAG" 2>&1 | grep -v 'GITEE\|trace' || true
   [ -f scripts/sync_gitee_release.py ] && python3 scripts/sync_gitee_release.py "$TAG" || true
 fi
