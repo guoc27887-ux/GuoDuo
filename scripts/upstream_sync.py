@@ -58,6 +58,18 @@ PATCHES = [
     ("hema.js", "require('./web-media-guard')", "require('../shims/web-media-guard.js')", "web-media-guard 用 JSC 替身"),
     ("xifan.js", "require('./web-media-guard')", "require('../shims/web-media-guard.js')", "web-media-guard 用 JSC 替身"),
     ("public.js", "import request from './transport.js';", "import request from '../shims/transport.js';", "transport 用 JSC 替身"),
+    ("app-source.js", "require('./sdk-playback')", "require('../shims/sdk-playback.js')", "sdk-playback（macOS 子进程）用空替身"),
+    ("app-source.js",
+     "            channel: 'vivo_8662_64', device_platform: 'android', device_type: 'PGT-AN10',\n            os_version: '12', update_version_code: '74332',\n",
+     "            channel: 'vivo_8662_64', device_platform: 'android', device_type: 'PGT-AN10',\n            os_version: '12', update_version_code: '74332',\n"
+     "            // GuoDuo：video_tab 补全设备参数（同绿果TV 2.0.8），缺了服务端回空包\n"
+     "            os: 'android', ssmix: 'a', manifest_version_code: '74332', resolution: '1920*1080', dpi: '280',\n"
+     "            device_brand: 'HONOR', language: 'zh', os_api: '31', ac: 'wifi', host_abi: 'arm64-v8a',\n"
+     "            dragon_device_type: 'phone', pv_player: '74332', compliance_status: '0', need_personal_recommend: '1',\n"
+     "            player_so_load: '1', is_android_pad_screen: '0', rom_version: 'V417IR+release-keys',\n",
+     "video_tab 补全设备参数"),
+    ("playback-v5.js", (ROOT / "core/patches/v5-medusa.orig.js").read_text(encoding="utf-8"),
+     (ROOT / "core/patches/v5-medusa.ours.js").read_text(encoding="utf-8"), "Medusa 设备段补全（同绿果TV 2.0.8）"),
 ]
 
 # 实测：搜这几部剧，每部取前 N 集播放地址（真实网络）
