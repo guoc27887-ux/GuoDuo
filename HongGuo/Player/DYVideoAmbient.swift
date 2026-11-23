@@ -20,12 +20,15 @@ enum DYVideoAmbient {
 
 struct DYAmbientBackdrop: UIViewRepresentable {
     let player: AVPlayer
+    /// 播放器建 item 时已挂好的取帧输出；本视图绝不再给 item 加/摘输出（会让播放管线重建）
+    var output: AVPlayerItemVideoOutput?
     var active: Bool
     var dim: Double
     var fillWidth: Bool
     func makeUIView(context: Context) -> DYAmbientFrameView { DYAmbientFrameView(player: player) }
     func updateUIView(_ v: DYAmbientFrameView, context: Context) {
         v.player = player
+        v.output = output
         v.dim = dim
         v.fillWidth = fillWidth
         v.active = active
@@ -40,9 +43,7 @@ final class DYAmbientFrameView: UIView {
     var fillWidth = true
     private let imageView = UIImageView()
     private let dimView = UIView()
-    private let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
-        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
-    private weak var attachedItem: AVPlayerItem?
+    weak var output: AVPlayerItemVideoOutput?
     private var link: CADisplayLink?
     private static let ci = CIContext(options: [.cacheIntermediates: false])
 
@@ -62,7 +63,7 @@ final class DYAmbientFrameView: UIView {
         addSubview(dimView)
     }
     required init?(coder: NSCoder) { fatalError() }
-    deinit { link?.invalidate(); attachedItem?.remove(output) }
+    deinit { link?.invalidate() }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -72,18 +73,7 @@ final class DYAmbientFrameView: UIView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        attachEarly()
         updateLink()
-    }
-
-    /// 取帧输出必须在视频「还停着」的时候挂上：给正在起播的 AVPlayerItem 加 VideoOutput 会让播放管线重建，
-    /// 画面和声音一起顿一下、往回弹一帧（老板实测「有的视频会、有的不会」= 挂上去的时机碰上了起播）。
-    /// 页面一挂载（预热播放器已经接上）就挂，切过去起播时不再动管线。
-    private func attachEarly() {
-        guard window != nil, let item = player.currentItem, attachedItem !== item else { return }
-        attachedItem?.remove(output)
-        item.add(output)
-        attachedItem = item
     }
 
     private func updateLink() {
@@ -96,9 +86,6 @@ final class DYAmbientFrameView: UIView {
             link = l
         } else {
             link?.invalidate(); link = nil
-            // 不再在失活时摘掉输出：摘/挂都会动播放管线，留着直到页面销毁（deinit 里摘）
-            if window == nil { attachedItem?.remove(output); attachedItem = nil }
-            else { attachEarly() }
         }
     }
 
@@ -112,13 +99,7 @@ final class DYAmbientFrameView: UIView {
 
     fileprivate func tick() {
         // 画面铺满时背景看不见，但桌面姿态的评论区还在等投光，照样取帧
-        guard !covered || DYDeskLightHub.wanted, let item = player.currentItem else { return }
-        // 秒开高清接管、头部缓存接在线流都会换 item，跟着换
-        if attachedItem !== item {
-            attachedItem?.remove(output)
-            item.add(output)
-            attachedItem = item
-        }
+        guard !covered || DYDeskLightHub.wanted, let output, let item = player.currentItem, item.outputs.contains(output) else { return }
         let t = output.itemTime(forHostTime: CACurrentMediaTime())
         guard output.hasNewPixelBuffer(forItemTime: t),
               let pb = output.copyPixelBuffer(forItemTime: t, itemTimeForDisplay: nil) else { return }

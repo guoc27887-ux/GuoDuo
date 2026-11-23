@@ -263,6 +263,18 @@ struct HGPlayerScreen: View {
             .onChange(of: session.index) { _, i in if page != i { withAnimation(.easeInOut(duration: 0.3)) { page = i } } }
             // scrollPosition 的初值对 LazyVStack 不生效：首帧后显式滚到起始集
             .onAppear { proxy.scrollTo(session.index, anchor: .top); page = session.index }
+            #if DEBUG
+            // 真机自动化：每集播到 N 秒就上滑（走和手滑一样的 page 路径）
+            .task {
+                guard let n = Double(ProcessInfo.processInfo.environment["HG_DEMO_EPSWIPE"] ?? "") else { return }
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(200))
+                    guard session.position > n, session.hasNext else { continue }
+                    withAnimation(.easeInOut(duration: 0.3)) { page = session.index + 1 }
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
+            #endif
           }
         }
     }
@@ -274,7 +286,7 @@ struct HGPlayerScreen: View {
         ZStack {
             Color.black
             if i == session.index {
-                DYAmbientBackdrop(player: session.player, active: true, dim: 0.6, fillWidth: fillWidth)
+                DYAmbientBackdrop(player: session.player, output: session.videoOutput, active: true, dim: 0.6, fillWidth: fillWidth)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
                 HGVideoLayer(player: session.player, fillWidth: fillWidth, pip: session.pip,

@@ -21,13 +21,77 @@ struct HGPlayerRequest: Identifiable {
         done = true
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         try? AVAudioSession.sharedInstance().setActive(true)
+        HGAudioKeepAlive.start()
     }
     /// 退出 App（没开听书、没在画中画）：交还音频会话、清掉锁屏 / 灵动岛的「正在播放」，
     /// 否则系统会把刚暂停的会话当成还在放，灵动岛闪一下播放图标（老板 2026-11-19 反馈）
     static func releaseForBackground() {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        HGAudioKeepAlive.release()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         done = false
+    }
+}
+
+/// 静音保活：播放页在前台时常开一路全零音频，音频输出链路不断。
+/// 真机（蓝牙耳机）实测 2026-11-24：AVPlayer 每换一集都要重新拉起蓝牙音频链路，画面等声音约 1.4 秒才动
+/// （老板反馈「滑到下一集会暂停一会才播、推荐里卡很久」），挂上保活后切集起播 1.7 秒 → 0.5 秒。
+/// 全零样本不出声，只多一点点耗电；退到后台（没开听书）随音频会话一起停。
+@MainActor enum HGAudioKeepAlive {
+    private static var engine: AVAudioEngine?
+    private static var observers: [NSObjectProtocol] = []
+    /// 只在前台保活：进后台一律停（听书模式下后台换集慢一点无所谓，不能让静音引擎把 App 一直吊在后台耗电）
+    private static let lifecycle: [NSObjectProtocol] = {
+        let nc = NotificationCenter.default
+        return [
+            nc.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { stop() }
+            },
+            nc.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { if wanted { start() } }
+            },
+        ]
+    }()
+    private static var wanted = false
+
+    static func start() {
+        _ = lifecycle
+        wanted = true
+        guard UIApplication.shared.applicationState != .background else { return }
+        if let engine { if !engine.isRunning { try? engine.start() }; return }
+        let e = AVAudioEngine()
+        let fmt = e.outputNode.inputFormat(forBus: 0)
+        guard fmt.sampleRate > 0, fmt.channelCount > 0 else { return }
+        let src = AVAudioSourceNode(format: fmt) { silence, _, _, abl in
+            for b in UnsafeMutableAudioBufferListPointer(abl) { if let p = b.mData { memset(p, 0, Int(b.mDataByteSize)) } }
+            silence.pointee = true
+            return noErr
+        }
+        e.attach(src)
+        e.connect(src, to: e.mainMixerNode, format: fmt)
+        do { try e.start() } catch { return }
+        engine = e
+        let nc = NotificationCenter.default
+        // 换耳机 / 来电打断后引擎会停：重新拉起（拔耳机等格式变化直接重建）
+        observers = [
+            nc.addObserver(forName: .AVAudioEngineConfigurationChange, object: e, queue: .main) { _ in
+                MainActor.assumeIsolated { stop(); start() }
+            },
+            nc.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { n in
+                let ended = (n.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.ended.rawValue
+                MainActor.assumeIsolated { if ended, let engine, !engine.isRunning { try? engine.start() } }
+            },
+        ]
+    }
+
+    /// 交还音频会话时：停掉且回前台前不再自动拉起（等播放器重新 activate）
+    static func release() { wanted = false; stop() }
+
+    static func stop() {
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers = []
+        engine?.stop()
+        engine = nil
     }
 }
 
@@ -55,6 +119,8 @@ final class HGPlaybackSession {
     private var lastPreviewAt = Date.distantPast
     var boosting = false
     let pip = DYPictureInPicture()
+    /// 环境光取帧输出：建 item 时（起播前）就挂上。起播后再给 item 加 VideoOutput 会让播放管线重建（画面顿一下、往前跳）
+    private(set) var videoOutput: AVPlayerItemVideoOutput?
 
     private var startAt: Double
     private var loadTask: Task<Void, Never>?
@@ -258,6 +324,7 @@ final class HGPlaybackSession {
         setupRemoteCommands()   // 上一部 stop() 会清掉所有远程按键，前台这部重新挂上
         updateNowPlaying()
         guard player.currentItem != nil, failed == nil else { return }
+        switchT0 = CACurrentMediaTime(); switchArmed = position < 0.05
         player.playImmediately(atRate: effectiveRate)
         isPlaying = true
         clock.userToggle(position, playing: true, rate: Double(effectiveRate))
@@ -292,7 +359,10 @@ final class HGPlaybackSession {
 
     // MARK: 加载
 
+    private var switchT0: CFTimeInterval = 0
+    private var switchArmed = false
     private func load(_ i: Int, at offset: Double) {
+        switchT0 = CACurrentMediaTime()
         loadTask?.cancel()
         index = i; failed = nil; status = "正在获取片源…"
         position = 0; duration = 0; danmaku = []; danmakuNotice = nil; frameReady = false; displayReady = false
@@ -392,6 +462,9 @@ final class HGPlaybackSession {
 
     private func attach(_ file: URL, offset: Double) {
         let item = AVPlayerItem(url: file)
+        let out = AVPlayerItemVideoOutput(pixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+        item.add(out)
+        videoOutput = out
         item.audioTimePitchAlgorithm = .timeDomain
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
@@ -402,6 +475,7 @@ final class HGPlaybackSession {
             }
         }
         player.replaceCurrentItem(with: item)
+        switchArmed = !suspended   // 预热的（挂起）等转正时再计时
         let gen = AVAssetImageGenerator(asset: item.asset)
         gen.appliesPreferredTrackTransform = true
         gen.maximumSize = CGSize(width: 360, height: 360)
@@ -433,6 +507,10 @@ final class HGPlaybackSession {
 
     private func tick(_ t: Double) {
         guard t.isFinite else { return }
+        if switchArmed && t > 0.05 {
+            switchArmed = false
+            HGTrace.log("\(feedMode ? "feed" : "full") ep\(index + 1) 起播 \(Int((CACurrentMediaTime() - switchT0) * 1000))ms")
+        }
         if t > 0.05 && !frameReady { frameReady = true }
         position = t
         if let d = player.currentItem?.duration.seconds, d.isFinite, d > 0 { duration = d }
