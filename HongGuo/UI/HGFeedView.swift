@@ -349,9 +349,27 @@ struct HGFeedView: View {
         } else {
             warm?.stop(); warm = nil; warmID = nil
             let new = makeSession(model.items[idx])
-            if !active || full != nil { new.suspend() }
+            // 回滑 / 跳滑的新建会话与预热转正走同一条起播路：先挂起着建会话、开文件，
+            // 等 item 就绪、首帧解出（prime 置 frameReady）再 resumeIfSuspended 转正起播。
+            // 第一轮只在会话内等就绪再播（playWhenReady）真机仍黑：起播时机对了，
+            // 但顺序仍与预热路径不同——预热是「先就绪、画面层先绑好、最后才起播」，
+            // 新建会话原来是 attach 完立刻起播，画面层随后才在视图出现时绑上，
+            // 绑上时播放器已在播，layer 却一直不出帧（有声黑屏）。统一顺序消除这条分叉；
+            // 等待超时（文件要现下载等）就直接转正，退回 playWhenReady 的等就绪起播，不更差。
+            new.suspend()
             session = new; sessionID = id
             new.start()
+            if active && full == nil {
+                Task { @MainActor in
+                    var waited = 0
+                    while sessionID == id, !new.frameReady, new.failed == nil, waited < 80 {
+                        try? await Task.sleep(for: .milliseconds(50))
+                        waited += 1
+                    }
+                    guard sessionID == id, active, full == nil else { return }
+                    new.resumeIfSuspended()
+                }
+            }
         }
         // 当前这部开播后再备下一部（不跟它抢解码）
         let next = model.items[safe: idx + 1]

@@ -19,7 +19,14 @@ struct HGPlayerScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var hSize
-    @State private var session: HGPlaybackSession
+    @State private var ownedSession: HGPlaybackSession
+    /// 推荐流传进来的会话：不经 @State，直接跟随外层当前给的实例。
+    /// @State 只在视图身份首次建立时取初值：回滑时外层销毁旧会话、新建一个，
+    /// 若本页视图身份被复用，@State 会继续指着已 stop 的旧会话——旧播放器的画面层
+    /// 绑在死 item 上不出帧，新会话的声音却从外层照常在播（真机实证的回滑黑屏有声）。
+    /// 改成计算属性后，本页永远渲染外层此刻给的那个会话，这一类错位结构性消除。
+    private let feedSession: HGPlaybackSession?
+    private var session: HGPlaybackSession { feedSession ?? ownedSession }
     @State private var page: Int?
     @State private var library = HGLibrary.shared
 
@@ -69,15 +76,17 @@ struct HGPlayerScreen: View {
     private let feed: HGFeedHooks?
 
     init(request: HGPlayerRequest) {
-        _session = State(initialValue: HGPlaybackSession(request))
+        _ownedSession = State(initialValue: HGPlaybackSession(request))
         _page = State(initialValue: request.index)
         feed = nil
+        feedSession = nil
     }
 
     init(feedSession: HGPlaybackSession, hooks: HGFeedHooks) {
-        _session = State(initialValue: feedSession)
+        _ownedSession = State(initialValue: feedSession)
         _page = State(initialValue: feedSession.index)
         feed = hooks
+        self.feedSession = feedSession
     }
 
     /// DouDuo DYCommentStage / DYCommentPlayerLayout 同一套几何（原样搬的 DYCommentPaneMetrics）：
@@ -940,6 +949,8 @@ struct HGVideoLayer: UIViewRepresentable {
             if v.playerLayer.player !== player, UIApplication.shared.applicationState != .background { v.playerLayer.player = player }
             v.fillWidth = fillWidth
             v.onReadyForDisplay = onReadyForDisplay
+            v.pip = pip
+            v.healIfStuck()
             return v
         }
         let v = HGPlayerLayerView()
@@ -949,6 +960,7 @@ struct HGVideoLayer: UIViewRepresentable {
         v.onReadyForDisplay = onReadyForDisplay
         v.pip = pip
         pip.prepareManual(layer: v.playerLayer)   // 不建控制器：退出 App 不会自动画中画
+        v.healIfStuck()
         return v
     }
     func updateUIView(_ v: HGPlayerLayerView, context: Context) {
@@ -956,6 +968,7 @@ struct HGVideoLayer: UIViewRepresentable {
         v.onReadyForDisplay = onReadyForDisplay
         v.fillWidth = fillWidth
         v.applyGravity()
+        v.healIfStuck()
     }
 }
 
@@ -997,6 +1010,37 @@ final class HGPlayerLayerView: UIView {
     }
     required init?(coder: NSCoder) { fatalError() }
     deinit { bgObs.forEach(NotificationCenter.default.removeObserver) }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { healIfStuck() }
+    }
+    private var healedItem: ObjectIdentifier?
+    private var healWork: DispatchWorkItem?
+    /// 画面层自愈：播放器在播（item 已 readyToPlay、未暂停）、视图已在窗口里，
+    /// layer 却迟迟 isReadyForDisplay=false，就是真机实证的「有声黑屏」形态
+    /// （上游在 DYVideoAmbient 里也记过：画面层与播放器的绑定一旦错位就一直不出帧、不会自己好）。
+    /// 等 0.6 秒仍卡住，把 layer 与同一个 player 解绑、下一轮 runloop 再绑回，
+    /// 强制画面层与当前帧重新同步。每个 item 只做一次，正常路径（几十毫秒内出帧）不触发。
+    func healIfStuck() {
+        healWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in self?.attemptHeal() }
+        healWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: w)
+    }
+    private func attemptHeal() {
+        guard window != nil, let p = playerLayer.player, let item = p.currentItem,
+              item.status == .readyToPlay, p.timeControlStatus != .paused,
+              !playerLayer.isReadyForDisplay else { return }
+        let key = ObjectIdentifier(item)
+        guard healedItem != key else { return }
+        healedItem = key
+        playerLayer.player = nil
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.playerLayer.player == nil else { return }
+            self.playerLayer.player = p
+            self.onReadyForDisplay?(self.playerLayer.isReadyForDisplay)
+        }
+    }
     override func layoutSubviews() { super.layoutSubviews(); applyGravity() }
     func applyGravity() {
         guard let size = playerLayer.player?.currentItem?.presentationSize, size.width > 1, size.height > 1,
