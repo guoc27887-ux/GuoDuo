@@ -936,6 +936,8 @@ struct HGVideoLayer: UIViewRepresentable {
     func makeUIView(context: Context) -> HGPlayerLayerView {
         if let v = Self.views.object(forKey: player) {
             v.removeFromSuperview()
+            // 拿出来先把画面层绑回本播放器再交出去，不要只等 updateUIView 兜底
+            if v.playerLayer.player !== player, UIApplication.shared.applicationState != .background { v.playerLayer.player = player }
             v.fillWidth = fillWidth
             v.onReadyForDisplay = onReadyForDisplay
             return v
@@ -951,6 +953,7 @@ struct HGVideoLayer: UIViewRepresentable {
     }
     func updateUIView(_ v: HGPlayerLayerView, context: Context) {
         if v.playerLayer.player !== player, UIApplication.shared.applicationState != .background { v.playerLayer.player = player }
+        v.onReadyForDisplay = onReadyForDisplay
         v.fillWidth = fillWidth
         v.applyGravity()
     }

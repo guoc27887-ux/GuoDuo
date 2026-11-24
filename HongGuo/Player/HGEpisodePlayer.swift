@@ -318,14 +318,47 @@ final class HGPlaybackSession {
         }
     }
 
+    /// 起播时机：item 还没 readyToPlay 就等它就绪再 playImmediately，不要一挂上 item 就抢播。
+    /// 真机实证（2026-11-24，iOS 18.3）：推荐页回滑到看过的剧、以及冷启动第一部，都是新建会话
+    /// attach 后立刻 playImmediately——item 还在加载、automaticallyWaitsToMinimizeStalling=false
+    /// 又不等缓冲，结果声音先行、画面层一直不出帧（整屏黑，只有声音、弹幕和进度在走）。
+    /// 预热转正的会话不黑，正是因为它起播时 item 已就绪。新鲜会话照同一次序：先就绪、后起播；
+    /// 就绪前 status 显示「正在加载…」（顺带挡住暂停图标闪一下）。
+    private var playObs: NSKeyValueObservation?
+    private func playWhenReady(_ item: AVPlayerItem) {
+        playObs?.invalidate(); playObs = nil
+        if item.status == .readyToPlay {
+            guard player.currentItem === item, !suspended else { return }
+            player.playImmediately(atRate: effectiveRate)
+            return
+        }
+        status = "正在加载…"
+        playObs = item.observe(\.status, options: [.new]) { [weak self] it, _ in
+            guard it.status == .readyToPlay || it.status == .failed else { return }
+            let failedError = it.status == .failed ? (it.error?.localizedDescription ?? "播放失败") : nil
+            Task { @MainActor in
+                guard let self, self.player.currentItem === item, !self.suspended else { return }
+                self.playObs?.invalidate(); self.playObs = nil
+                if self.status == "正在加载…" { self.status = nil }
+                if let failedError {
+                    self.failed = failedError
+                    self.isPlaying = false
+                    if self.feedMode { self.onFeedEnd?() }
+                } else {
+                    self.player.playImmediately(atRate: self.effectiveRate)
+                }
+            }
+        }
+    }
+
     func resumeIfSuspended() {
         guard suspended else { return }
         suspended = false
         setupRemoteCommands()   // 上一部 stop() 会清掉所有远程按键，前台这部重新挂上
         updateNowPlaying()
-        guard player.currentItem != nil, failed == nil else { return }
+        guard let item = player.currentItem, failed == nil else { return }
         switchT0 = CACurrentMediaTime(); switchArmed = position < 0.05
-        player.playImmediately(atRate: effectiveRate)
+        playWhenReady(item)
         isPlaying = true
         clock.userToggle(position, playing: true, rate: Double(effectiveRate))
     }
@@ -342,6 +375,7 @@ final class HGPlaybackSession {
         save(force: true)
         loadTask?.cancel(); danmakuTask?.cancel(); aheadTask?.cancel()
         primeObs?.invalidate(); primeObs = nil
+        playObs?.invalidate(); playObs = nil
         player.pause()
         if feedMode { player.replaceCurrentItem(with: nil) }
         if let timeObserver { player.removeTimeObserver(timeObserver) }
@@ -364,6 +398,7 @@ final class HGPlaybackSession {
     private func load(_ i: Int, at offset: Double) {
         switchT0 = CACurrentMediaTime()
         loadTask?.cancel()
+        playObs?.invalidate(); playObs = nil
         index = i; failed = nil; status = "正在获取片源…"
         position = 0; duration = 0; danmaku = []; danmakuNotice = nil; frameReady = false; displayReady = false
         aheadTask?.cancel()
@@ -497,7 +532,7 @@ final class HGPlaybackSession {
             clock.seek(offset, playing: false, rate: Double(effectiveRate))
             prime(item)
         } else {
-            player.playImmediately(atRate: effectiveRate)
+            playWhenReady(item)
             isPlaying = true
             clock.seek(offset, playing: true, rate: Double(effectiveRate))
         }
