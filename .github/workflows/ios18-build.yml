@@ -16,12 +16,27 @@ concurrency:
 jobs:
   build:
     name: Build unsigned IPA
-    runs-on: macos-26
+    # 2026-11-27：macos-26 两次排队 15 分钟被 GitHub 取消（零步骤），
+    # 改走 macos-15 并显式选镜像自带的 Xcode 26（需要 iOS 26 SDK 编液态玻璃等符号）。
+    runs-on: macos-15
     timeout-minutes: 60
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        run: |
+          ls /Applications | grep -i xcode || true
+          XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XC" ]; then
+            echo "::error::No Xcode 26 found on this runner image"
+            exit 1
+          fi
+          echo "Selecting $XC"
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
 
       - name: Install XcodeGen
         run: brew install xcodegen
