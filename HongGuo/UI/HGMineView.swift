@@ -339,8 +339,15 @@ struct HGMineView: View {
         guard g == refreshGen else { return }
         account = st
         guard account?.signedIn == true else { cloud = []; cloudFavorites = []; reserved = []; info = nil; return }
-        async let h = Result { try await HGAPI.cloudHistoryAll() }
-        async let f = Result { try await HGAPI.cloudFavorites() }
+        // Result(catching:) 只接受同步闭包，async 闭包须用立即执行的 async 闭包包一层
+        async let h: Result<[HGCloudHistoryRow], Error> = {
+            do { return .success(try await HGAPI.cloudHistoryAll()) }
+            catch { return .failure(error) }
+        }()
+        async let f: Result<[HGCloudFavorite], Error> = {
+            do { return .success(try await HGAPI.cloudFavorites()) }
+            catch { return .failure(error) }
+        }()
         async let i = try? HGAPI.accountInfo()
         async let r = try? HGAPI.reservations()
         let (iv, rv, hv, fv) = (await i, await r, await h, await f)
