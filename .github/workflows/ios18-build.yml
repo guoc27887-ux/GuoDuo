@@ -1,0 +1,88 @@
+name: Build unsigned IPA (iOS 18 port)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ios18-compat-1.0.0
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Build Release app without signing
+        run: |
+          mkdir -p build
+          set +e
+          xcodebuild -project HongGuo.xcodeproj -scheme HongGuo -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' -derivedDataPath build/DD build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            > build/xcodebuild.log 2>&1
+          XC_STATUS=$?
+          set -e
+          grep -E "error:|BUILD" build/xcodebuild.log | tail -40 || true
+          if [ "$XC_STATUS" -ne 0 ]; then
+            echo "::error::xcodebuild failed with exit code $XC_STATUS — see build log artifact"
+            exit 1
+          fi
+          grep -q "BUILD SUCCEEDED" build/xcodebuild.log
+
+      - name: Verify built app bundle
+        run: |
+          APP=build/DD/Build/Products/Release-iphoneos/HongGuo.app
+          test -d "$APP"
+          EXE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")
+          echo "CFBundleExecutable = $EXE"
+          test -n "$EXE"
+          test -f "$APP/$EXE"
+          file "$APP/$EXE"
+          file "$APP/$EXE" | grep -q "Mach-O"
+          MINOS=$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")
+          echo "MinimumOSVersion = $MINOS"
+          test "$MINOS" = "18.0"
+          VER=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")
+          echo "CFBundleShortVersionString = $VER"
+          test "$VER" = "1.0.0"
+          ls -la "$APP/$EXE"
+
+      - name: Package unsigned IPA
+        run: |
+          rm -rf build/ipa && mkdir -p build/ipa/Payload
+          cp -R build/DD/Build/Products/Release-iphoneos/HongGuo.app build/ipa/Payload/
+          (cd build/ipa && zip -qry ../GuoDuo-1.0.0-ios18-unsigned.ipa Payload)
+          unzip -l build/GuoDuo-1.0.0-ios18-unsigned.ipa | grep -E "Payload/HongGuo.app/HongGuo$"
+          ls -la build/GuoDuo-1.0.0-ios18-unsigned.ipa
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: guoduo-1.0.0-ios18-unsigned-ipa
+          path: build/GuoDuo-1.0.0-ios18-unsigned.ipa
+          if-no-files-found: error
+
+      - name: Upload build log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: guoduo-1.0.0-ios18-build-log
+          path: build/xcodebuild.log
+          if-no-files-found: warn
